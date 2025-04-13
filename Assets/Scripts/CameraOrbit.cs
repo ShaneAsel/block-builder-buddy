@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 public class CameraOrbit : MonoBehaviour
 {
@@ -10,22 +11,31 @@ public class CameraOrbit : MonoBehaviour
     public float minPitch = 10f;
     public float maxPitch = 80f;
 
-    private float yaw = 0f;
-    private float pitch = 30f;
+    private float targetYaw = 0f;
+    private float targetPitch = 30f;
+    private float currentYaw = 0f;
+    private float currentPitch = 30f;
+    private float yawVelocity = 0f;
+    private float pitchVelocity = 0f;
     private float currentZoom = 10f;
+
+    public float smoothTime = 0.1f;
 
     void Start()
     {
         currentZoom = cameraTransform.localPosition.magnitude;
+        targetYaw = currentYaw = transform.eulerAngles.y;
+        targetPitch = currentPitch = 30f;
         UpdateCameraPosition();
     }
 
     void Update()
     {
         HandleTouch();
-#if UNITY_EDITOR
+        #if UNITY_EDITOR
         HandleEditorMouse();
-#endif
+        #endif
+        SmoothRotate();
         UpdateCameraPosition();
     }
 
@@ -35,12 +45,15 @@ public class CameraOrbit : MonoBehaviour
         {
             Touch touch = Input.GetTouch(0);
 
+            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(touch.fingerId))
+                return;
+
             if (touch.phase == TouchPhase.Moved)
             {
                 Vector2 delta = touch.deltaPosition;
-                yaw += delta.x * rotationSpeed;
-                pitch -= delta.y * rotationSpeed;
-                pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+                targetYaw += delta.x * rotationSpeed;
+                targetPitch -= delta.y * rotationSpeed;
+                targetPitch = Mathf.Clamp(targetPitch, minPitch, maxPitch);
             }
         }
 
@@ -62,9 +75,9 @@ public class CameraOrbit : MonoBehaviour
     {
         if (Input.GetMouseButton(1))
         {
-            yaw += Input.GetAxis("Mouse X") * rotationSpeed * 10f;
-            pitch -= Input.GetAxis("Mouse Y") * rotationSpeed * 10f;
-            pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+            targetYaw += Input.GetAxis("Mouse X") * rotationSpeed * 10f;
+            targetPitch -= Input.GetAxis("Mouse Y") * rotationSpeed * 10f;
+            targetPitch = Mathf.Clamp(targetPitch, minPitch, maxPitch);
         }
 
         float scroll = Input.GetAxis("Mouse ScrollWheel");
@@ -75,9 +88,15 @@ public class CameraOrbit : MonoBehaviour
         }
     }
 
+    void SmoothRotate()
+    {
+        currentYaw = Mathf.SmoothDampAngle(currentYaw, targetYaw, ref yawVelocity, smoothTime);
+        currentPitch = Mathf.SmoothDampAngle(currentPitch, targetPitch, ref pitchVelocity, smoothTime);
+    }
+
     void UpdateCameraPosition()
     {
-        Quaternion rotation = Quaternion.Euler(pitch, yaw, 0);
+        Quaternion rotation = Quaternion.Euler(currentPitch, currentYaw, 0);
         Vector3 offset = rotation * new Vector3(0, 0, -currentZoom);
         cameraTransform.localPosition = offset;
         cameraTransform.LookAt(transform.position);

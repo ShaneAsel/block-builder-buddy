@@ -1,5 +1,35 @@
+//     void PlaceBlock(RaycastHit hit)
+// {
+//     GameObject blockToPlace = blockPrefabs[selectedBlockIndex];
+
+//     // Get block height from its collider
+//     float blockHeight = 1f;
+//     if (blockToPlace.TryGetComponent(out Collider col))
+//         blockHeight = col.bounds.size.y;
+
+//     // Offset from the hit point
+//     Vector3 position = hit.point + hit.normal * (blockHeight / 2f);
+
+//     // Snap to grid
+//     float gridSize = 1f;
+//     position = new Vector3(
+//         Mathf.Round(position.x / gridSize) * gridSize,
+//         Mathf.Round(position.y / gridSize) * gridSize,
+//         Mathf.Round(position.z / gridSize) * gridSize
+//     );
+
+//     // Instantiate
+//     GameObject newBlock = Instantiate(blockToPlace, position, Quaternion.identity);
+
+//     // ✅ Tag & layer setup
+//     if (IsTagDefined("Block"))
+//         newBlock.tag = "Block";
+
+//     // ✅ Set layer to Placeable so future raycasts can hit it
+//     newBlock.layer = LayerMask.NameToLayer("Placeable");
+// }
+
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
 public class BlockPlacer : MonoBehaviour
@@ -9,20 +39,45 @@ public class BlockPlacer : MonoBehaviour
     public Camera mainCamera;
     public LayerMask placementMask;
     private int selectedBlockIndex = 0;
-    private Vector2 touchStartPos;
-    private float maxTapMovement = 10f; // pixels
+
+    [Header("Snap Settings")]
+    public float gridSize = 1f;
 
     void Update()
     {
-        // Mobile Touch Input
-        if (Input.touchCount > 0)
+    #if UNITY_EDITOR
+        HandleMouseInput();
+    #else
+        HandleTouchInput();
+    #endif
+    }
+
+    void HandleMouseInput()
+    {
+        if (Input.GetMouseButtonDown(0))
+        {
+            if (EventSystem.current.IsPointerOverGameObject())
+                return;
+
+            Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+            if (Physics.Raycast(ray, out RaycastHit hit, 100f, placementMask))
+            {
+                if (Input.GetKey(KeyCode.LeftShift) && hit.collider.CompareTag("Block"))
+                    Destroy(hit.collider.gameObject);
+                else
+                    PlaceBlock(hit);
+            }
+        }
+    }
+
+    void HandleTouchInput()
+    {
+        if (Input.touchCount == 1)
         {
             Touch touch = Input.GetTouch(0);
 
-            // Only act on touch release
-            if (touch.phase == TouchPhase.Ended)
+            if (touch.phase == TouchPhase.Began)
             {
-                // Ignore if finger is over UI
                 if (EventSystem.current.IsPointerOverGameObject(touch.fingerId))
                     return;
 
@@ -33,50 +88,47 @@ public class BlockPlacer : MonoBehaviour
                 }
             }
         }
-
-        #if UNITY_EDITOR
-        // Editor Mouse Input
-        if (Input.GetMouseButtonDown(0))
-        {
-            if (EventSystem.current.IsPointerOverGameObject())
-                return;
-
-            Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
-            if (Physics.Raycast(ray, out RaycastHit hit))
-            {
-                // Hold Shift to delete blocks
-                if (Input.GetKey(KeyCode.LeftShift) && hit.collider.CompareTag("Block"))
-                {
-                    Destroy(hit.collider.gameObject);
-                }
-                else
-                {
-                    PlaceBlock(hit);
-                }
-            }
-        }
-        #endif
     }
 
     void PlaceBlock(RaycastHit hit)
+{
+    GameObject blockToPlace = blockPrefabs[selectedBlockIndex];
+    if (blockToPlace == null) return;
+
+    // Default to ground-based positioning
+    Vector3 basePos;
+
+    if (hit.collider.CompareTag("Block"))
     {
-        // Add half of the normal so the new block sits on top of the hit surface
-        Vector3 position = hit.point + hit.normal / 2f;
-
-        // Round the position so the block snaps to the grid
-        position = new Vector3(
-            Mathf.Round(position.x),
-            Mathf.Round(position.y),
-            Mathf.Round(position.z)
-        );
-
-        GameObject block = Instantiate(blockPrefabs[selectedBlockIndex], position, Quaternion.identity);
-
-        if (IsTagDefined("Block"))
-        {
-            block.tag = "Block";
-        }
+        // Hit a block — place next to it using its snapped position
+        basePos = hit.transform.position + hit.normal * gridSize;
     }
+    else
+    {
+        // Hit the ground — use snapped hit.point + upward normal
+        basePos = hit.point + hit.normal * (gridSize / 2f);
+    }
+
+    // Snap to grid
+    Vector3 finalPos = new Vector3(
+        Mathf.Round(basePos.x / gridSize) * gridSize,
+        Mathf.Round(basePos.y / gridSize) * gridSize,
+        Mathf.Round(basePos.z / gridSize) * gridSize
+    );
+
+    // Debug
+    Debug.Log($"[PLACE] Hit: {hit.collider.name} | Normal: {hit.normal} | Final Position: {finalPos}");
+    Debug.DrawRay(hit.point, hit.normal * 2f, Color.red, 1f);
+
+    GameObject newBlock = Instantiate(blockToPlace, finalPos, Quaternion.identity);
+    newBlock.name = $"Block_{finalPos.x}_{finalPos.y}_{finalPos.z}";
+
+    if (IsTagDefined("Block"))
+        newBlock.tag = "Block";
+
+    newBlock.layer = LayerMask.NameToLayer("Placeable");
+}
+
 
     public void SetBlockIndex(int index)
     {
